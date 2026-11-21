@@ -3,7 +3,7 @@
   const {questions, sources} = window.FOOD_QUIZ;
   const $ = selector => document.querySelector(selector);
   const el = (tag, cls, text) => {const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
-  let index=0, picked=null, locked=false, records=[];
+  let index=0, picked=null, locked=false, records=[], attemptId=null, participantCode=null, saving=false, saved=false;
   function shuffle(values){const a=[...values];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
   function refs(ids){const row=el('div','source-links');row.append(el('span','','依据：'));for(const id of ids){const s=sources.find(x=>x.id===id),a=el('a','',`[${id}] ${s.name}`);a.href=s.url;a.target='_blank';a.rel='noopener';row.append(a);}return row;}
   function screen(id){for(const name of ['welcome','play','result'])$('#'+name).hidden=name!==id;window.scrollTo({top:0,behavior:'instant'});}
@@ -19,7 +19,7 @@
     });
     $('#submit').disabled=true;$('#submit').hidden=false;$('#selection-hint').textContent='请选择一个答案';$('#feedback').hidden=true;$('#feedback').replaceChildren();$('#next').hidden=true;$('#question').focus();
   }
-  function start(){index=0;records=[];screen('play');drawQuestion();}
+  function start(){if(saving)return;index=0;records=[];attemptId=crypto.randomUUID();saved=false;$('#save-status').textContent='尚未提交。仅在你勾选同意并点击提交后，才会上传本轮成绩。';$('#save-score').disabled=false;$('#save-score').textContent='提交本轮成绩';$('#consent').checked=false;$('#consent').disabled=false;$('#nickname').value='';$('#nickname').disabled=false;screen('play');drawQuestion();}
   function submit(){
     if(locked||picked===null)return;locked=true;const q=questions[index],ok=picked===q.answer;
     records.push({id:q.id,picked,ok});
@@ -38,6 +38,17 @@
     $('#result-title').focus();
   }
   $('#start').addEventListener('click',start);$('#restart').addEventListener('click',start);$('#submit').addEventListener('click',submit);
+  $('#score-form').addEventListener('submit',async(event)=>{
+    event.preventDefault();if(saving||saved||records.length!==questions.length)return;if(location.protocol==='file:'){$('#save-status').textContent='离线副本仅用于练习。请打开在线测验链接提交成绩：https://djzkqb.github.io/campus-raw-food-quiz/';return;}
+    if(!$('#consent').checked){$('#save-status').textContent='请先阅读说明并勾选同意。也可以不提交，继续阅读解析。';$('#consent').focus();return;}
+    saving=true;$('#save-score').disabled=true;$('#restart').disabled=true;$('#save-status').textContent='正在保存，请保持页面打开……';
+    if(!participantCode){try{participantCode=localStorage.getItem('raw-food-participant-v1');if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(participantCode||'')){participantCode=crypto.randomUUID();localStorage.setItem('raw-food-participant-v1',participantCode);}}catch{participantCode=crypto.randomUUID();}}
+    const data={attemptId,participantCode,quizVersion:window.SCORE_CONFIG.quizVersion,consent:true,nickname:$('#nickname').value.trim(),answers:records.map(r=>r.picked)};
+    const post=async(path,payload)=>{const response=await fetch(window.SCORE_CONFIG.api+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(15000),credentials:'omit'});let result;try{result=await response.json();}catch{throw Error('成绩服务暂时无法访问');}if(!response.ok)throw Error(result.error||'提交未完成');return result;};
+    try{const session=await post('/session',data),receipt=await post('/attempts',{...data,token:session.token});if(!receipt.saved||receipt.receipt!==attemptId)throw Error('未收到保存回执');saved=true;$('#save-score').textContent='已保存';$('#consent').disabled=true;$('#nickname').disabled=true;$('#save-status').textContent=`已保存 · ${receipt.score} 分 · ${new Date(receipt.createdAt).toLocaleString('zh-CN')}。回执：${receipt.receipt}。可截图保存，用于向活动负责人申请删除。`;}
+    catch(error){$('#save-status').textContent=`未确认保存成功：${error.name==='TimeoutError'?'连接超时':error.message}。请保持本页并重试；同一轮重试不会重复计入。`;$('#save-score').disabled=false;$('#save-score').textContent='重试提交本轮成绩';}
+    finally{saving=false;$('#restart').disabled=false;}
+  });
   $('#next').addEventListener('click',()=>{if(!locked)return;if(index===questions.length-1)results();else {index++;drawQuestion();}});
   $('#copy-link').addEventListener('click',async()=>{const url=location.protocol.startsWith('http')?new URL('./',location.href).href:'https://djzkqb.github.io/campus-raw-food-quiz/';try{await Promise.race([navigator.clipboard.writeText(url),new Promise((_,reject)=>setTimeout(()=>reject(new Error('clipboard timeout')),1500))]);$('#copy-status').textContent='链接已复制，可以分享给同学。';}catch{$('#copy-status').textContent='请复制这个链接：'+url;}});
 })();
