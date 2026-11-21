@@ -19,7 +19,7 @@
     });
     $('#submit').disabled=true;$('#submit').hidden=false;$('#selection-hint').textContent='请选择一个答案';$('#feedback').hidden=true;$('#feedback').replaceChildren();$('#next').hidden=true;$('#question').focus();
   }
-  function start(){if(saving)return;index=0;records=[];attemptId=crypto.randomUUID();saved=false;$('#save-status').textContent='尚未提交。仅在你勾选同意并点击提交后，才会上传本轮成绩。';$('#save-score').disabled=false;$('#save-score').textContent='提交本轮成绩';$('#consent').checked=false;$('#consent').disabled=false;$('#nickname').value='';$('#nickname').disabled=false;screen('play');drawQuestion();}
+  function start(){if(saving)return;index=0;records=[];attemptId=crypto.randomUUID();saved=false;$('#save-status').textContent='尚未提交。仅在你勾选同意并点击提交后，才会上传本轮成绩。';$('#save-score').disabled=false;$('#save-score').textContent='提交本轮成绩';$('#consent').checked=false;$('#consent').disabled=false;$('#nickname').value='';$('#nickname').disabled=false;window.dispatchEvent(new Event('quiz-started'));screen('play');drawQuestion();}
   function submit(){
     if(locked||picked===null)return;locked=true;const q=questions[index],ok=picked===q.answer;
     records.push({id:q.id,picked,ok});
@@ -45,7 +45,7 @@
     if(!participantCode){try{participantCode=localStorage.getItem('raw-food-participant-v1');if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(participantCode||'')){participantCode=crypto.randomUUID();localStorage.setItem('raw-food-participant-v1',participantCode);}}catch{participantCode=crypto.randomUUID();}}
     const data={attemptId,participantCode,quizVersion:window.SCORE_CONFIG.quizVersion,consent:true,nickname:$('#nickname').value.trim(),answers:records.map(r=>r.picked)};
     const post=async(path,payload)=>{const response=await fetch(window.SCORE_CONFIG.api+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(15000),credentials:'omit'});let result;try{result=await response.json();}catch{throw Error('成绩服务暂时无法访问');}if(!response.ok)throw Error(result.error||'提交未完成');return result;};
-    try{const session=await post('/session',data),receipt=await post('/attempts',{...data,token:session.token});if(!receipt.saved||receipt.receipt!==attemptId)throw Error('未收到保存回执');saved=true;$('#save-score').textContent='已保存';$('#consent').disabled=true;$('#nickname').disabled=true;$('#save-status').textContent=`已保存 · ${receipt.score} 分 · ${new Date(receipt.createdAt).toLocaleString('zh-CN')}。回执：${receipt.receipt}。可截图保存，用于向活动负责人申请删除。`;}
+    try{const session=await post('/session',data),receipt=await post('/attempts',{...data,token:session.token});if(!receipt.saved||receipt.receipt!==attemptId)throw Error('未收到保存回执');window.dispatchEvent(new CustomEvent('quiz-score-saved',{detail:{attemptId,participantCode,nickname:data.nickname}}));saved=true;$('#save-score').textContent='已保存';$('#consent').disabled=true;$('#nickname').disabled=true;$('#save-status').textContent=`已保存 · ${receipt.score} 分 · ${new Date(receipt.createdAt).toLocaleString('zh-CN')}。回执：${receipt.receipt}。可截图保存，用于向活动负责人申请删除。`;}
     catch(error){$('#save-status').textContent=`未确认保存成功：${error.name==='TimeoutError'?'连接超时':error.message}。请保持本页并重试；同一轮重试不会重复计入。`;$('#save-score').disabled=false;$('#save-score').textContent='重试提交本轮成绩';}
     finally{saving=false;$('#restart').disabled=false;}
   });
